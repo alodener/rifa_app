@@ -27,6 +27,8 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Redirect;
 use Illuminate\Support\Facades\Storage;
 use QRcode;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Collection;
 
 class ProductController extends Controller
 {
@@ -415,7 +417,7 @@ class ProductController extends Controller
                     ->where('products.id', '=', $request->productID)
                     ->first();
 
-                //dd($request->productID);
+     
 
                 if ($statusProduct->status == "Ativo") {
 
@@ -473,49 +475,75 @@ class ProductController extends Controller
                     } else {
                         if ($prod->type_raffles == 'manual' || $prod->type_raffles == 'mesclado') {
                             $numbers = $request->numberSelected;
-                            $resutlNumbers = explode(",", $numbers);
+                            $resutlNumbersSemFormato = explode(",", $numbers);
 
-                            $numbersRifa = $prod->numbers();
+                            $numeros = [];
 
-                            $selecionados = [];
-                            foreach ($resutlNumbers as $key => $value) {
-                                $expl = explode("-", $value);
-                                $keyNumber = end($expl);
-
-                                $keyRifa = array_search($keyNumber, $numbersRifa);
-                                array_push($selecionados, $keyNumber);
-                                unset($numbersRifa[$keyRifa]);
+                            // Itera sobre cada substring
+                            foreach ($resutlNumbersSemFormato as $substring) {
+                                // Divide a substring em pares usando "-" como delimitador
+                                $par = explode("-", $substring);
+                                // Adiciona o primeiro número de cada par ao array de números
+                                $numeros[] = $par[0];
                             }
 
-                            $prod->saveNumbers($numbersRifa);
+                            $resutlNumbers = $numeros;
+                            
+                            $disponiveis = $prod->numbers();
+
 
                         } else {
-                            $disponiveis = $prod->numbers();
-                            // shuffle($numbersRifa);
-                            // dd($numbersRifa);
                             
-                            // $disponiveis = array_filter($numbersRifa, function ($number) {
-                            //     return $number['status'] == 'Disponivel';
-                            // });
+//                             // Define a chave para os números disponíveis
+//                             $cacheKey = 'numeros_disponiveis';
 
-                            shuffle($disponiveis);
+//                             // Recupera os números disponíveis do cache ou do banco de dados
+//                             $disponiveis = Cache::rememberForever($cacheKey, function () use ($prod) {
+//                                 return $prod->numbers(); //array de numeros ex: ["01","02"]
+//                             });
+//                             shuffle($disponiveis);
+// dd($disponiveis);
+//                             // Verifica se a quantidade solicitada está disponível
+//                             if (count($disponiveis) < $request->qtdNumbers) {
+//                                 return Redirect::back()->withErrors('Quantidade indisponível para a rifa selecionada. A quantidade disponível é: ' . count($disponiveis));
+//                             }
 
-                            $selecionados = array_slice($disponiveis, 0, $request->qtdNumbers);
+//                             // Cria uma coleção dos números disponíveis
+//                             $disponiveisCollection = new Collection($disponiveis);
+                            
+//                             // Seleciona os números para o usuário atual
+//                             $selecionados = $disponiveisCollection->splice(0, $request->qtdNumbers);
+//                             $resutlNumbers = $selecionados;
+//                             // Atualiza os números disponíveis no cache
+//                             Cache::forever($cacheKey, $disponiveisCollection->toArray());
+//                             $prod->saveNumbers($disponiveisCollection->toArray());
+//                             // Obtém os números selecionados como uma string
+//                             $numbers = $selecionados->implode(",");
 
-                            if (count($disponiveis) < $request->qtdNumbers) {
-                                return Redirect::back()->withErrors('Quantidade indisponível para a rifa selecionada. A quantidade disponível é: ' . count($disponiveis));
-                            }
 
-                            foreach ($selecionados as $key => $resultNumber) {
-                                $resutlNumbers[] = $resultNumber;
-                                unset($disponiveis[$key]);
-                            }
-
-                            sort($disponiveis);
-
-                            $prod->saveNumbers($disponiveis);
-
-                            $numbers = implode(",", $resutlNumbers);
+                                // Recupera os números disponíveis diretamente do banco de dados
+                                $disponiveis = $prod->numbers(); // array de números, ex: ["01", "02"]
+                                shuffle($disponiveis);
+    
+                                // Verifica se a quantidade solicitada está disponível
+                                if (count($disponiveis) < $request->qtdNumbers) {
+                                    return Redirect::back()->withErrors(
+                                        'Quantidade indisponível para a rifa selecionada. A quantidade disponível é: ' . count($disponiveis)
+                                    );
+                                }
+    
+                                // Seleciona os números para o usuário atual
+                                $selecionados = array_slice($disponiveis, 0, $request->qtdNumbers);
+    
+                                // Atualiza os números disponíveis no banco de dados
+                                $disponiveisRestantes = array_slice($disponiveis, $request->qtdNumbers);
+                                $prod->saveNumbers($disponiveisRestantes);
+    
+                                // Obtém os números selecionados como uma string
+                                $numbers = implode(",", $selecionados);
+    
+                                // Define a variável $resutlNumbers
+                                $resutlNumbers = $selecionados;
                         }
                     }
 
@@ -854,7 +882,7 @@ class ProductController extends Controller
             $paggue_curl = curl_init();
 
             curl_setopt_array($paggue_curl, array(
-                CURLOPT_URL => 'https://ms.paggue.io/payments/api/auth/login',
+                CURLOPT_URL => 'https://ms.paggue.io/auth/v1/token',
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_ENCODING => '',
                 CURLOPT_MAXREDIRS => 10,
@@ -868,7 +896,7 @@ class ProductController extends Controller
             ));
 
             $auth_response = json_decode(curl_exec($paggue_curl));
-
+            
             curl_close($paggue_curl);
 
             $paggue_token = $auth_response->access_token;
@@ -892,7 +920,7 @@ class ProductController extends Controller
             $curl = curl_init();
 
             curl_setopt_array($curl, array(
-                CURLOPT_URL => 'https://ms.paggue.io/payments/api/billing_order',
+                CURLOPT_URL => 'https://ms.paggue.io/cashin/api/billing_order',
                 CURLOPT_RETURNTRANSFER => true,
                 curl_setopt($curl, CURLOPT_POST, 1),
                 CURLOPT_POSTFIELDS => json_encode($payload),
@@ -900,9 +928,10 @@ class ProductController extends Controller
             ));
 
             $payment_response = json_decode(curl_exec($curl));
-
+         
             curl_close($curl);
 
+            Log::info("log gateway: ", [$payment_response]);
             ob_start();
             \QRCode::png($payment_response->payment, null);
             $imageString = base64_encode(ob_get_contents());
