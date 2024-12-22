@@ -476,9 +476,9 @@ class ProductController extends Controller
                         if ($prod->type_raffles == 'manual' || $prod->type_raffles == 'mesclado') {
                             $numbers = $request->numberSelected;
                             $resutlNumbersSemFormato = explode(",", $numbers);
-
+                        
                             $numeros = [];
-
+                        
                             // Itera sobre cada substring
                             foreach ($resutlNumbersSemFormato as $substring) {
                                 // Divide a substring em pares usando "-" como delimitador
@@ -486,11 +486,23 @@ class ProductController extends Controller
                                 // Adiciona o primeiro número de cada par ao array de números
                                 $numeros[] = $par[0];
                             }
-
-                            $resutlNumbers = $numeros;
-                            
-                            $disponiveis = $prod->numbers();
-
+                        
+                            $resutlNumbers = $numeros; // Números selecionados pelo usuário
+                            $disponiveis = $prod->numbers(); // Números disponíveis
+                        
+                            // Verifica se todos os números selecionados estão disponíveis
+                            $naoDisponiveis = array_diff($resutlNumbers, $disponiveis);
+                        
+                            if (!empty($naoDisponiveis)) {
+                                // Existem números que não estão disponíveis
+                                return Redirect::back()->with('error', 'Os seguintes números não estão disponíveis: ' . implode(', ', $naoDisponiveis));
+                            }
+                        
+                            // Calcula os números restantes após a seleção
+                            $numerosRestantes = array_diff($disponiveis, $resutlNumbers);
+                        
+                            // Salva os números restantes no modelo usando a função saveNumbers
+                            $prod->saveNumbers($numerosRestantes);
 
                         } else {
                             
